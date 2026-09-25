@@ -2,11 +2,10 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <!-- モバイル端末でのズーム防止、フルスクリーン・ノッチ対応 (Apple HIG準拠) -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>チームスケジュール共有</title>
 
-  <!-- PWA設定: iOS Safari & Android Chrome スタンドアロン表示対応 -->
+  <!-- PWA設定 -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="TeamCal">
@@ -16,7 +15,7 @@
   <!-- スタイリング: Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- スクリプト: Vue.js 3 CDN (ビルド不要のスタンドアロン版) -->
+  <!-- スクリプト: Vue.js 3 CDN -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 
   <!-- アイコン: Lucide Icons CDN -->
@@ -26,7 +25,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
-    /* Apple HIG準拠のシステムフォントとタッチ操作の最適化 */
+    [v-cloak] {
+      display: none !important;
+    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
       -webkit-font-smoothing: antialiased;
@@ -61,7 +62,1165 @@
   </style>
 </head>
 <body class="bg-neutral-50 text-neutral-900 min-h-screen flex flex-col antialiased">
-  <div id="app" class="flex flex-col flex-1 h-screen overflow-hidden">
+  <div id="app" v-cloak class="flex flex-col flex-1 h-screen overflow-hidden">
+    
+    <!-- 管理者ステータスバー -->
+    <div v-if="isAdmin" class="bg-blue-600 text-white text-[11px] px-3 py-1 flex items-center justify-between shrink-0 safe-top-header">
+      <span class="flex items-center gap-1 font-medium">
+        <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> 管理者モード（編集・追加可能）
+      </span>
+      <button @click="logoutAdmin" class="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded text-[10px] font-semibold transition-colors">
+        ログアウト
+      </button>
+    </div>
+
+    <!-- ヘッダーエリア -->
+    <header class="bg-white/90 backdrop-blur-md border-b border-neutral-200/80 sticky top-0 z-30 px-3.5 sm:px-6 pb-2 shrink-0 transition-all" :class="isAdmin ? 'pt-1.5' : 'safe-top-header'">
+      <div class="flex items-center justify-between gap-2 min-h-[44px]">
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button 
+            @click="goToday" 
+            class="text-base sm:text-lg font-bold text-neutral-900 tracking-tight hover:text-blue-600 transition-colors flex items-center gap-1 active:scale-95" 
+            title="今日へ移動">
+            <span>{{ currentPeriodLabel }}</span>
+            <span v-if="!isCurrentPeriodToday" class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+          <!-- PC専用: 切替タブ -->
+          <div class="hidden md:flex bg-neutral-100 p-0.5 rounded-lg border border-neutral-200/70 text-xs font-medium mr-1">
+            <button @click="viewMode = 'day'" :class="viewMode === 'day' ? 'bg-white text-blue-600 shadow-xs' : 'text-neutral-600 hover:text-neutral-900'" class="px-3 min-h-[30px] rounded-md transition-all">日</button>
+            <button @click="viewMode = 'week'" :class="viewMode === 'week' ? 'bg-white text-blue-600 shadow-xs' : 'text-neutral-600 hover:text-neutral-900'" class="px-3 min-h-[30px] rounded-md transition-all">週</button>
+            <button @click="viewMode = 'month'" :class="viewMode === 'month' ? 'bg-white text-blue-600 shadow-xs' : 'text-neutral-600 hover:text-neutral-900'" class="px-3 min-h-[30px] rounded-md transition-all">月</button>
+          </div>
+
+          <!-- PC専用: 管理者/追加ボタン -->
+          <div class="hidden md:flex items-center gap-1.5">
+            <button 
+              v-if="!isAdmin" 
+              @click="openAuthModal" 
+              class="h-8 px-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-lg text-xs font-medium flex items-center gap-1">
+              <i data-lucide="lock" class="w-3.5 h-3.5"></i> 管理者
+            </button>
+            <button 
+              v-else 
+              @click="openCreateModal" 
+              class="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> 予定追加
+            </button>
+          </div>
+
+          <!-- ナビゲーションボタン -->
+          <div class="flex items-center bg-neutral-100/90 rounded-xl p-0.5 border border-neutral-200/80 shadow-2xs">
+            <button @click="prevPeriod" class="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg text-neutral-600 hover:text-neutral-900 transition-all active:scale-95" title="前へ">
+              <i data-lucide="chevron-left" class="w-4 h-4"></i>
+            </button>
+            <button @click="goToday" class="px-2.5 h-8 text-xs font-semibold hover:bg-white rounded-lg text-neutral-700 hover:text-neutral-900 transition-all active:scale-95 whitespace-nowrap">
+              今日
+            </button>
+            <button @click="nextPeriod" class="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg text-neutral-600 hover:text-neutral-900 transition-all active:scale-95" title="次へ">
+              <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- タグフィルターバー -->
+    <div class="bg-white border-b border-neutral-200/80 px-3.5 sm:px-6 py-2 flex items-center gap-1.5 overflow-x-auto shrink-0 no-scrollbar">
+      <button 
+        @click="selectedTag = ''" 
+        :class="selectedTag === '' ? 'bg-neutral-800 text-white shadow-xs' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200/70'"
+        class="h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 flex items-center whitespace-nowrap">
+        すべて
+      </button>
+      <button 
+        v-for="t in predefinedTags" 
+        :key="t" 
+        @click="selectedTag = t" 
+        :class="selectedTag === t ? tagActiveStyle(t) : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200/70'"
+        class="h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 flex items-center gap-1 whitespace-nowrap">
+        <span class="w-1.5 h-1.5 rounded-full" :class="tagDotColor(t)"></span>
+        <span>{{ t }}</span>
+        <span class="text-[10px] opacity-75">({{ countTagEvents(t) }})</span>
+      </button>
+    </div>
+
+    <!-- メインコンテンツ表示エリア -->
+    <main class="flex-1 overflow-hidden p-2 sm:p-4 md:p-6 pb-20 md:pb-6 flex flex-col min-h-0">
+      
+      <!-- 1. 月表示 -->
+      <div v-if="viewMode === 'month'" class="flex-1 flex flex-col md:grid md:grid-cols-12 gap-3 min-h-0 overflow-hidden">
+        <div class="md:col-span-7 lg:col-span-8 bg-white rounded-2xl border border-neutral-200 shadow-xs flex flex-col overflow-hidden shrink-0 md:shrink md:h-full">
+          <div class="grid grid-cols-7 border-b border-neutral-100 bg-neutral-50/70 text-center text-xs font-semibold py-1.5 shrink-0">
+            <div class="text-rose-500">日</div>
+            <div class="text-neutral-500">月</div>
+            <div class="text-neutral-500">火</div>
+            <div class="text-neutral-500">水</div>
+            <div class="text-neutral-500">木</div>
+            <div class="text-neutral-500">金</div>
+            <div class="text-blue-500">土</div>
+          </div>
+          <div class="grid grid-cols-7 flex-1 auto-rows-fr">
+            <div 
+              v-for="(cell, idx) in monthCells" 
+              :key="idx" 
+              @click="selectMonthCell(cell.dateStr)"
+              :class="[
+                'border-b border-r border-neutral-100 p-1 flex flex-col cursor-pointer transition-all select-none relative',
+                cell.isCurrentMonth ? 'bg-white' : 'bg-neutral-50/50 opacity-35',
+                selectedDateStr === cell.dateStr ? 'bg-blue-50/60 ring-2 ring-inset ring-blue-500 z-10' : 'hover:bg-neutral-50/80',
+                cell.isToday && selectedDateStr !== cell.dateStr ? 'ring-1 ring-inset ring-neutral-300' : ''
+              ]"
+              style="min-height: 48px;">
+              
+              <div class="flex items-center justify-between">
+                <span :class="[
+                  'text-[11px] sm:text-xs font-semibold rounded-full w-5 h-5 flex items-center justify-center transition-colors',
+                  cell.isToday ? 'bg-blue-600 text-white font-bold' : (selectedDateStr === cell.dateStr ? 'text-blue-700 font-bold' : 'text-neutral-700')
+                ]">
+                  {{ cell.dayNumber }}
+                </span>
+                <span v-if="filterEvents(cell.events).length > 0" class="hidden md:inline-block text-[9px] font-bold text-neutral-400">
+                  {{ filterEvents(cell.events).length }}件
+                </span>
+              </div>
+
+              <!-- スマホ用ドット -->
+              <div class="flex md:hidden items-center justify-center gap-0.5 mt-1 flex-wrap">
+                <span 
+                  v-for="ev in filterEvents(cell.events).slice(0, 3)" 
+                  :key="ev.id" 
+                  :class="tagDotColor(ev.tag)" 
+                  class="w-1.5 h-1.5 rounded-full">
+                </span>
+                <span v-if="filterEvents(cell.events).length > 3" class="text-[8px] text-neutral-400 leading-none font-bold">+</span>
+              </div>
+
+              <!-- PC用バッジ -->
+              <div class="hidden md:flex flex-1 flex-col gap-1 overflow-hidden mt-1">
+                <div 
+                  v-for="ev in filterEvents(cell.events).slice(0, 2)" 
+                  :key="ev.id" 
+                  @click.stop="handleEventClick(ev)"
+                  :class="tagBadgeStyle(ev.tag)" 
+                  class="px-1.5 py-0.5 rounded text-[10px] font-medium truncate border shadow-2xs hover:brightness-95">
+                  <span class="font-bold opacity-75 mr-0.5">{{ formatEventTime(ev) }}</span>
+                  <span>{{ ev.title }}</span>
+                </div>
+                <div v-if="filterEvents(cell.events).length > 2" class="text-[9px] text-neutral-400 font-medium px-1">
+                  他 {{ filterEvents(cell.events).length - 2 }} 件...
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 選択日の詳細アジェンダリスト -->
+        <div class="flex-1 md:col-span-5 lg:col-span-4 bg-white rounded-2xl border border-neutral-200 shadow-xs flex flex-col overflow-hidden min-h-0">
+          <div class="p-3 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/60 shrink-0">
+            <div>
+              <h2 class="text-xs sm:text-sm font-bold text-neutral-800 flex items-center gap-1.5">
+                <i data-lucide="calendar-check" class="w-4 h-4 text-blue-600"></i>
+                <span>{{ selectedDateFormatted }} の予定</span>
+              </h2>
+              <span class="text-[11px] text-neutral-400">{{ filterEvents(selectedDateEvents).length }} 件登録されています</span>
+            </div>
+            <button 
+              v-if="isAdmin" 
+              @click="quickCreateForDate(selectedDateStr)" 
+              class="h-8 px-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold rounded-lg text-xs flex items-center gap-1 transition-colors">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> 追加
+            </button>
+          </div>
+
+          <div class="flex-1 overflow-y-auto p-2.5 space-y-2">
+            <div v-if="filterEvents(selectedDateEvents).length === 0" class="h-36 flex flex-col items-center justify-center text-neutral-400">
+              <i data-lucide="calendar-x-2" class="w-7 h-7 stroke-1 mb-1 text-neutral-300"></i>
+              <p class="text-xs">この日の予定はありません</p>
+            </div>
+
+            <div 
+              v-for="ev in filterEvents(selectedDateEvents)" 
+              :key="ev.id" 
+              @click="handleEventClick(ev)"
+              :class="tagBadgeStyle(ev.tag)" 
+              class="p-2.5 rounded-xl border flex items-start justify-between cursor-pointer shadow-2xs hover:shadow-xs transition-all">
+              <div class="space-y-1 flex-1 min-w-0 pr-2">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="text-[11px] font-mono font-bold bg-white/80 px-1.5 py-0.5 rounded text-neutral-800 border border-neutral-200/50">
+                    {{ formatEventTime(ev) }}
+                  </span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold border flex items-center gap-1" :class="tagTagStyle(ev.tag)">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="tagDotColor(ev.tag)"></span>
+                    {{ ev.tag }}
+                  </span>
+                </div>
+                <div class="text-xs sm:text-sm font-bold text-neutral-900 leading-snug break-words">
+                  {{ ev.title }}
+                </div>
+                <p v-if="ev.description" class="text-[11px] text-neutral-600 line-clamp-2 leading-relaxed bg-white/50 p-1.5 rounded-lg border border-neutral-100">
+                  {{ ev.description }}
+                </p>
+              </div>
+              <div class="flex items-center gap-0.5 shrink-0 self-center">
+                <i data-lucide="chevron-right" class="w-4 h-4 text-neutral-400"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. 週表示 -->
+      <div v-else-if="viewMode === 'week'" class="flex-1 bg-white rounded-2xl border border-neutral-200 shadow-xs flex flex-col overflow-hidden">
+        <div class="hidden md:grid grid-cols-7 border-b border-neutral-200 bg-neutral-50/70 text-center py-2 shrink-0">
+          <div v-for="d in weekDays" :key="d.dateStr" class="flex flex-col items-center">
+            <span class="text-[11px] font-semibold text-neutral-400">{{ d.dayLabel }}</span>
+            <span :class="[
+              'text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center mt-0.5',
+              d.isToday ? 'bg-blue-600 text-white' : 'text-neutral-800'
+            ]">{{ d.dayNumber }}</span>
+          </div>
+        </div>
+
+        <div class="flex-1 flex md:grid md:grid-cols-7 divide-x divide-neutral-100 overflow-x-auto overflow-y-auto no-scrollbar">
+          <div 
+            v-for="d in weekDays" 
+            :key="d.dateStr" 
+            class="min-w-[220px] md:min-w-0 flex-1 p-2 sm:p-2.5 flex flex-col gap-2 hover:bg-neutral-50/40 transition-colors">
+            
+            <div class="flex items-center justify-between pb-1.5 border-b border-neutral-100 shrink-0">
+              <div class="flex items-center gap-1.5">
+                <span :class="[
+                  'text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center',
+                  d.isToday ? 'bg-blue-600 text-white' : 'bg-neutral-100 text-neutral-800'
+                ]">{{ d.dayNumber }}</span>
+                <span class="text-xs font-semibold" :class="d.dayLabel === '日' ? 'text-rose-500' : (d.dayLabel === '土' ? 'text-blue-500' : 'text-neutral-500')">
+                  ({{ d.dayLabel }})
+                </span>
+              </div>
+              <button v-if="isAdmin" @click="quickCreateForDate(d.dateStr)" class="text-neutral-400 hover:text-blue-600 p-1 rounded-md" title="予定を追加">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+
+            <div class="flex-1 space-y-1.5 overflow-y-auto">
+              <div v-if="filterEvents(d.events).length === 0" class="py-8 text-center text-[11px] text-neutral-300">
+                予定なし
+              </div>
+              <div 
+                v-for="ev in filterEvents(d.events)" 
+                :key="ev.id" 
+                @click="handleEventClick(ev)"
+                :class="tagBadgeStyle(ev.tag)" 
+                class="p-2 rounded-xl text-xs font-medium border shadow-2xs transition-all hover:shadow-xs cursor-pointer">
+                <div class="flex items-center justify-between gap-1 mb-1">
+                  <span class="text-[10px] font-mono font-bold bg-white/70 px-1 rounded text-neutral-800">
+                    {{ formatEventTime(ev) }}
+                  </span>
+                  <div class="text-[9px] font-semibold flex items-center gap-1" :class="tagTextColor(ev.tag)">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="tagDotColor(ev.tag)"></span>
+                    {{ ev.tag }}
+                  </div>
+                </div>
+                <div class="font-bold text-neutral-900 leading-snug break-words">
+                  {{ ev.title }}
+                </div>
+                <p v-if="ev.description" class="text-[10px] text-neutral-600 mt-1 line-clamp-2 opacity-90 leading-tight">
+                  {{ ev.description }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. 日表示 -->
+      <div v-else-if="viewMode === 'day'" class="max-w-2xl w-full mx-auto bg-white rounded-2xl border border-neutral-200 shadow-xs p-4 sm:p-6 flex flex-col flex-1 overflow-hidden">
+        <div class="flex items-center justify-between border-b border-neutral-100 pb-3 mb-3 shrink-0">
+          <div>
+            <h2 class="text-base sm:text-lg font-bold text-neutral-800">{{ currentDateFormatted }}</h2>
+            <p class="text-xs text-neutral-400">予定: {{ filterEvents(dayEvents).length }} 件</p>
+          </div>
+          <button v-if="isAdmin" @click="quickCreateForDate(currentDateStr)" class="h-9 px-3.5 bg-blue-50 text-blue-600 font-semibold rounded-xl text-xs hover:bg-blue-100 transition-colors flex items-center gap-1">
+            <i data-lucide="plus" class="w-4 h-4"></i> 予定を追加
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto space-y-2.5">
+          <div v-if="filterEvents(dayEvents).length === 0" class="h-48 flex flex-col items-center justify-center text-neutral-400">
+            <i data-lucide="calendar-x" class="w-8 h-8 stroke-1 mb-2"></i>
+            <p class="text-xs">予定はありません</p>
+          </div>
+          <div 
+            v-for="ev in filterEvents(dayEvents)" 
+            :key="ev.id" 
+            @click="handleEventClick(ev)"
+            :class="tagBadgeStyle(ev.tag)" 
+            class="p-3.5 rounded-xl border flex items-start justify-between cursor-pointer shadow-2xs hover:shadow-xs transition-all">
+            <div class="space-y-1.5 flex-1 pr-3">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-mono font-bold bg-white/80 px-2 py-0.5 rounded text-neutral-800 shadow-2xs">
+                  {{ formatEventTime(ev) }}
+                </span>
+                <span class="text-xs px-2 py-0.5 rounded-full font-semibold border flex items-center gap-1" :class="tagTagStyle(ev.tag)">
+                  <span class="w-1.5 h-1.5 rounded-full" :class="tagDotColor(ev.tag)"></span>
+                  {{ ev.tag }}
+                </span>
+              </div>
+              <h3 class="text-sm font-bold text-neutral-900 pt-0.5">{{ ev.title }}</h3>
+              <p v-if="ev.description" class="text-xs text-neutral-600 whitespace-pre-wrap leading-relaxed bg-white/40 p-2 rounded-lg border border-neutral-100">{{ ev.description }}</p>
+            </div>
+            <button v-if="isAdmin" @click.stop="confirmDelete(ev.id)" class="min-w-[40px] min-h-[40px] flex items-center justify-center text-neutral-400 hover:text-rose-600 transition-colors" title="削除">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- スマホ用ボトムナビゲーション -->
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg border-t border-neutral-200/80 safe-bottom z-30 flex items-center justify-around px-2 py-1">
+      <button @click="viewMode = 'day'" :class="viewMode === 'day' ? 'text-blue-600 font-semibold' : 'text-neutral-500'" class="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-[10px] transition-colors">
+        <i data-lucide="calendar-days" class="w-5 h-5"></i>
+        <span>日</span>
+      </button>
+      <button @click="viewMode = 'week'" :class="viewMode === 'week' ? 'text-blue-600 font-semibold' : 'text-neutral-500'" class="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-[10px] transition-colors">
+        <i data-lucide="calendar-range" class="w-5 h-5"></i>
+        <span>週</span>
+      </button>
+      <button @click="viewMode = 'month'" :class="viewMode === 'month' ? 'text-blue-600 font-semibold' : 'text-neutral-500'" class="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-[10px] transition-colors">
+        <i data-lucide="calendar" class="w-5 h-5"></i>
+        <span>月</span>
+      </button>
+      <button @click="handleAdminButtonClick" :class="isAdmin ? 'text-blue-600 font-bold' : 'text-neutral-500 font-medium'" class="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-[10px] transition-all">
+        <div :class="isAdmin ? 'bg-blue-600 text-white' : 'bg-neutral-100 text-neutral-600 border border-neutral-200'" class="w-7 h-7 rounded-full flex items-center justify-center shadow-xs transition-colors">
+          <i :data-lucide="isAdmin ? 'unlock' : 'lock'" class="w-3.5 h-3.5"></i>
+        </div>
+        <span>管理者</span>
+      </button>
+    </nav>
+
+    <!-- モーダル1: 管理者パスワード入力ダイアログ -->
+    <div v-if="showAuthModal" @click="closeAuthModal" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div @click.stop class="bg-white rounded-2xl max-w-xs w-full shadow-2xl border border-neutral-200 p-5 text-center transform transition-all">
+        <div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 mx-auto flex items-center justify-center mb-3">
+          <i data-lucide="key-round" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-base font-bold text-neutral-900 mb-1">管理者ログイン</h3>
+        <p class="text-xs text-neutral-500 mb-4">予定の追加・編集を行うには管理者パスワードを入力してください。</p>
+
+        <form @submit.prevent="verifyPassword" class="space-y-4">
+          <div>
+            <input 
+              v-model="inputPassword" 
+              type="password" 
+              maxlength="10" 
+              placeholder="パスワードを入力" 
+              class="w-full text-center tracking-widest text-lg font-mono px-3 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white" 
+              autofocus 
+              required>
+            <p v-if="authError" class="text-rose-500 text-xs font-semibold mt-1.5">
+              {{ authError }}
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" @click="closeAuthModal" class="flex-1 py-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors">
+              キャンセル
+            </button>
+            <button type="submit" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-semibold shadow-xs transition-all">
+              認証する
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- モーダル2: 管理者メニュー -->
+    <div v-if="showAdminMenuModal" @click="showAdminMenuModal = false" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 sm:p-4">
+      <div @click.stop class="bg-white rounded-2xl max-w-xs w-full shadow-2xl border border-neutral-200 p-4 space-y-2 transform transition-all">
+        <h4 class="text-xs font-bold text-neutral-400 uppercase tracking-wider px-2 py-1">管理者メニュー</h4>
+        <button @click="openCreateModalFromMenu" class="w-full py-2.5 px-3 bg-blue-600 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-xs">
+          <i data-lucide="plus" class="w-4 h-4"></i> 新規予定を追加
+        </button>
+        <button @click="logoutAdmin" class="w-full py-2.5 px-3 bg-neutral-100 hover:bg-rose-50 text-neutral-700 hover:text-rose-600 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors">
+          <i data-lucide="log-out" class="w-4 h-4"></i> ログアウト（閲覧のみへ）
+        </button>
+        <button @click="showAdminMenuModal = false" class="w-full py-2 text-xs text-neutral-400 hover:text-neutral-600 font-medium">
+          閉じる
+        </button>
+      </div>
+    </div>
+
+    <!-- モーダル3: 一般閲覧ダイアログ -->
+    <div v-if="showViewModal" @click="showViewModal = false" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div @click.stop class="bg-white rounded-2xl max-w-sm w-full shadow-2xl border border-neutral-200 overflow-hidden transform transition-all">
+        <div class="px-5 py-4 border-b border-neutral-100 flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full" :class="tagDotColor(viewingEvent.tag)"></span>
+            <span class="text-xs font-semibold" :class="tagTextColor(viewingEvent.tag)">{{ viewingEvent.tag }}</span>
+          </div>
+          <button @click="showViewModal = false" class="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="p-5 space-y-3">
+          <div class="text-xs text-neutral-400 flex items-center gap-2">
+            <span>{{ viewingEvent.date }}</span>
+            <span class="font-bold text-neutral-700 font-mono">{{ formatEventTime(viewingEvent) }}</span>
+          </div>
+          <h3 class="text-base font-bold text-neutral-900 leading-snug">
+            {{ viewingEvent.title }}
+          </h3>
+          <p v-if="viewingEvent.description" class="text-xs text-neutral-600 whitespace-pre-wrap bg-neutral-50 p-3 rounded-xl border border-neutral-100 leading-relaxed">
+            {{ viewingEvent.description }}
+          </p>
+        </div>
+        <div class="p-3 bg-neutral-50/70 border-t border-neutral-100 flex justify-end">
+          <button @click="showViewModal = false" class="px-4 py-2 bg-neutral-200/80 hover:bg-neutral-300 text-neutral-800 rounded-xl text-xs font-semibold transition-colors">
+            閉じる
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- モーダル4: 管理者用 予定登録 / 編集ダイアログ -->
+    <div v-if="showModal && isAdmin" @click="closeModal" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div @click.stop class="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-neutral-200 overflow-hidden transform transition-all">
+        <div class="px-5 py-4 border-b border-neutral-100 flex items-center justify-between">
+          <h3 class="font-bold text-neutral-900 text-sm sm:text-base">
+            {{ modalTitle }}
+          </h3>
+          <button @click="closeModal" class="min-w-[40px] min-h-[40px] flex items-center justify-center text-neutral-400 hover:text-neutral-600 rounded-lg" title="閉じる">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <form @submit.prevent="submitForm" class="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+          <div>
+            <label class="block text-xs font-semibold text-neutral-700 mb-1">タイトル <span class="text-rose-500">*</span></label>
+            <input 
+              v-model="form.title" 
+              type="text" 
+              placeholder="例: 全社連絡、チラシ配布、新商品納品" 
+              class="w-full px-3 py-2 text-sm bg-neutral-50 border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white" 
+              required>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-neutral-700 mb-1">日付 <span class="text-rose-500">*</span></label>
+            <input 
+              v-model="form.date" 
+              type="date" 
+              class="w-full px-3 py-2 text-sm bg-neutral-50 border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white" 
+              required>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-neutral-700 mb-1.5">タグ <span class="text-rose-500">*</span></label>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button 
+                v-for="tagName in predefinedTags" 
+                :key="tagName" 
+                type="button" 
+                @click="form.tag = tagName" 
+                :class="form.tag === tagName ? tagModalSelectedStyle(tagName) : 'bg-neutral-50 border-neutral-200 text-neutral-600 hover:bg-neutral-100'" 
+                class="min-h-[42px] px-3 rounded-xl border text-xs font-semibold transition-all flex items-center justify-center gap-1.5 shadow-2xs">
+                <span class="w-2 h-2 rounded-full" :class="tagDotColor(tagName)"></span>
+                <span>{{ tagName }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-2 bg-neutral-50/70 p-3 rounded-xl border border-neutral-200/80">
+            <label class="block text-xs font-semibold text-neutral-700">時間指定</label>
+            <div class="grid grid-cols-2 gap-1 bg-neutral-200/60 p-1 rounded-xl">
+              <button 
+                type="button" 
+                @click="form.hasTime = false" 
+                :class="!form.hasTime ? 'bg-white text-blue-600 font-bold shadow-xs' : 'text-neutral-600 hover:text-neutral-900 font-medium'" 
+                class="min-h-[40px] text-xs rounded-lg transition-all flex items-center justify-center gap-1.5">
+                <i data-lucide="clock-alert" class="w-3.5 h-3.5 opacity-70"></i>
+                <span>終日</span>
+              </button>
+              <button 
+                type="button" 
+                @click="form.hasTime = true" 
+                :class="form.hasTime ? 'bg-white text-blue-600 font-bold shadow-xs' : 'text-neutral-600 hover:text-neutral-900 font-medium'" 
+                class="min-h-[40px] text-xs rounded-lg transition-all flex items-center justify-center gap-1.5">
+                <i data-lucide="clock" class="w-3.5 h-3.5 opacity-70"></i>
+                <span>時間あり</span>
+              </button>
+            </div>
+
+            <div v-if="form.hasTime" class="pt-1">
+              <label class="block text-[11px] font-medium text-neutral-600 mb-1">開始時間 <span class="text-rose-500">*</span></label>
+              <input 
+                v-model="form.time" 
+                type="time" 
+                class="w-full px-3 py-2 text-sm bg-white border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                :required="form.hasTime">
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-neutral-700 mb-1">
+              詳細メモ <span class="text-[10px] text-neutral-400 font-normal">（Shift + Enterで即時保存）</span>
+            </label>
+            <textarea 
+              v-model="form.description" 
+              @keydown="handleTextareaKeydown" 
+              rows="3" 
+              placeholder="メモや連絡事項を入力" 
+              class="w-full px-3 py-2 text-sm bg-neutral-50 border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white resize-none"></textarea>
+          </div>
+
+          <div class="pt-2 flex items-center justify-between gap-3">
+            <button 
+              v-if="isEditing" 
+              type="button" 
+              @click="confirmDelete(form.id)" 
+              class="min-h-[40px] px-3.5 text-xs text-rose-600 hover:bg-rose-50 rounded-xl font-medium transition-colors">
+              削除する
+            </button>
+            <div v-else></div>
+
+            <div class="flex items-center gap-2">
+              <button 
+                type="button" 
+                @click="closeModal" 
+                class="min-h-[40px] px-4 text-xs font-medium text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors">
+                キャンセル
+              </button>
+              <button 
+                type="submit" 
+                class="min-h-[40px] px-5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-semibold shadow-sm transition-all">
+                {{ submitButtonText }}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // ==========================================
+    // Supabase 接続設定
+    // ==========================================
+    const SUPABASE_URL = "https://umhrrbqftcpyitbbuqzq.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_pTWKFg4BQqig_wF9zPAb0w_iPBJN8gO";
+
+    const isSupabaseConfigured = SUPABASE_URL && !SUPABASE_URL.includes("YOUR_PROJECT_ID") && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes("YOUR_SUPABASE_ANON_KEY");
+    let supabaseClient = null;
+    if (isSupabaseConfigured && window.supabase) {
+      try {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      } catch (e) {
+        console.warn("Supabase初期化スキップ:", e);
+      }
+    }
+
+    const ADMIN_PASSWORD = "0122";
+    const PREDEFINED_TAGS = ["本部案内", "販促情報", "商品情報", "その他"];
+
+    // ローカルストレージフォールバック
+    const localStore = {
+      get() {
+        const raw = localStorage.getItem("TeamCal_Events");
+        return raw ? JSON.parse(raw) : [];
+      },
+      save(list) {
+        localStorage.setItem("TeamCal_Events", JSON.stringify(list));
+      }
+    };
+
+    // ==========================================
+    // データアクセス層
+    // ==========================================
+    const dbService = {
+      async getAll() {
+        if (!supabaseClient) {
+          return localStore.get();
+        }
+        try {
+          const { data, error } = await supabaseClient
+            .from("schedules")
+            .select("*")
+            .order("date", { ascending: true });
+
+          if (error) throw error;
+
+          return (data || []).map(row => ({
+            id: row.id,
+            title: row.title,
+            date: row.date,
+            hasTime: !!row.has_time,
+            time: row.time || "",
+            tag: row.tag || "その他",
+            description: row.description || ""
+          }));
+        } catch (err) {
+          console.warn("Supabaseからの取得に失敗したためローカルデータを参照します:", err.message);
+          return localStore.get();
+        }
+      },
+
+      async save(item) {
+        if (!supabaseClient) {
+          const list = localStore.get().filter(e => e.id !== item.id);
+          list.push(item);
+          localStore.save(list);
+          return;
+        }
+        try {
+          const payload = {
+            id: item.id,
+            title: item.title,
+            date: item.date,
+            has_time: item.hasTime,
+            time: item.time || "",
+            tag: item.tag || "その他",
+            description: item.description || ""
+          };
+
+          const { error } = await supabaseClient
+            .from("schedules")
+            .upsert(payload, { onConflict: "id" });
+
+          if (error) throw error;
+        } catch (err) {
+          console.error("Supabase保存エラー:", err.message);
+          alert("保存に失敗しました: " + err.message);
+          throw err;
+        }
+      },
+
+      async delete(id) {
+        if (!supabaseClient) {
+          const list = localStore.get().filter(e => e.id !== id);
+          localStore.save(list);
+          return;
+        }
+        try {
+          const { error } = await supabaseClient
+            .from("schedules")
+            .delete()
+            .eq("id", id);
+
+          if (error) throw error;
+        } catch (err) {
+          console.error("Supabase削除エラー:", err.message);
+          alert("削除に失敗しました: " + err.message);
+          throw err;
+        }
+      }
+    };
+
+    // PWA Manifest
+    (function registerSingleFilePWA() {
+      const manifest = {
+        name: "チームスケジュール",
+        short_name: "TeamCal",
+        start_url: window.location.href,
+        display: "standalone",
+        background_color: "#ffffff",
+        theme_color: "#2563eb",
+        icons: [{
+          src: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232563eb'/><text x='50%' y='65%' font-size='50' text-anchor='middle' fill='white'>📅</text></svg>",
+          sizes: "192x192 512x512",
+          type: "image/svg+xml"
+        }]
+      };
+      const blob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
+      const link = document.createElement("link");
+      link.rel = "manifest";
+      link.href = URL.createObjectURL(blob);
+      document.head.appendChild(link);
+    })();
+
+    const { createApp, ref, computed, onMounted, nextTick } = Vue;
+
+    createApp({
+      setup() {
+        const viewMode = ref("month");
+        const currentDate = ref(new Date());
+        const selectedDateStr = ref(new Date().toISOString().split("T")[0]);
+        const events = ref([]);
+        const selectedTag = ref("");
+
+        const isAdmin = ref(false);
+        const showAuthModal = ref(false);
+        const showAdminMenuModal = ref(false);
+        const inputPassword = ref("");
+        const authError = ref("");
+
+        const showViewModal = ref(false);
+        const viewingEvent = ref({});
+
+        const predefinedTags = PREDEFINED_TAGS;
+        const showModal = ref(false);
+        const isEditing = ref(false);
+
+        const form = ref({
+          id: "",
+          title: "",
+          date: "",
+          hasTime: false,
+          time: "10:00",
+          tag: "本部案内",
+          description: ""
+        });
+
+        const modalTitle = computed(() => isEditing.value ? "予定を編集" : "新規予定登録");
+        const submitButtonText = computed(() => isEditing.value ? "保存する" : "追加する");
+
+        const refreshIcons = () => {
+          nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        };
+
+        const loadEvents = async () => {
+          events.value = await dbService.getAll();
+          refreshIcons();
+        };
+
+        onMounted(async () => {
+          await loadEvents();
+
+          if (supabaseClient) {
+            supabaseClient
+              .channel("public:schedules")
+              .on("postgres_changes", { event: "*", schema: "public", table: "schedules" }, () => {
+                loadEvents();
+              })
+              .subscribe();
+          }
+
+          refreshIcons();
+        });
+
+        const handleAdminButtonClick = () => {
+          if (!isAdmin.value) openAuthModal();
+          else {
+            showAdminMenuModal.value = true;
+            refreshIcons();
+          }
+        };
+
+        const openAuthModal = () => {
+          inputPassword.value = "";
+          authError.value = "";
+          showAuthModal.value = true;
+          refreshIcons();
+        };
+
+        const closeAuthModal = () => {
+          showAuthModal.value = false;
+          inputPassword.value = "";
+          authError.value = "";
+        };
+
+        const verifyPassword = () => {
+          if (inputPassword.value === ADMIN_PASSWORD) {
+            isAdmin.value = true;
+            closeAuthModal();
+            refreshIcons();
+          } else {
+            authError.value = "パスワードが間違っています。";
+          }
+        };
+
+        const logoutAdmin = () => {
+          isAdmin.value = false;
+          showAdminMenuModal.value = false;
+          showModal.value = false;
+          refreshIcons();
+        };
+
+        const openCreateModalFromMenu = () => {
+          showAdminMenuModal.value = false;
+          openCreateModal();
+        };
+
+        const handleEventClick = (ev) => {
+          if (isAdmin.value) {
+            openEditModal(ev);
+          } else {
+            viewingEvent.value = ev;
+            showViewModal.value = true;
+            refreshIcons();
+          }
+        };
+
+        const countTagEvents = (tag) => events.value.filter(e => e.tag === tag).length;
+
+        const filterEvents = (list) => {
+          if (!list) return [];
+          if (!selectedTag.value) return list;
+          return list.filter(e => e.tag === selectedTag.value);
+        };
+
+        const formatEventTime = (ev) => {
+          if (!ev.hasTime || !ev.time) return "終日";
+          return ev.time;
+        };
+
+        const currentPeriodLabel = computed(() => {
+          const d = currentDate.value;
+          const y = d.getFullYear();
+          const m = d.getMonth() + 1;
+          if (viewMode.value === "day") return `${y}年${m}月${d.getDate()}日`;
+          if (viewMode.value === "week") return `${y}年${m}月 (週)`;
+          return `${y}年${m}月`;
+        });
+
+        const isCurrentPeriodToday = computed(() => {
+          const now = new Date();
+          const cur = currentDate.value;
+          return now.getFullYear() === cur.getFullYear() && now.getMonth() === cur.getMonth();
+        });
+
+        const currentDateFormatted = computed(() => {
+          const d = currentDate.value;
+          return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${['日','月','火','水','木','金','土'][d.getDay()]})`;
+        });
+
+        const currentDateStr = computed(() => currentDate.value.toISOString().split("T")[0]);
+
+        const selectedDateFormatted = computed(() => {
+          if (!selectedDateStr.value) return "";
+          const [y, m, d] = selectedDateStr.value.split("-").map(Number);
+          const dateObj = new Date(y, m - 1, d);
+          return `${m}月${d}日 (${['日','月','火','水','木','金','土'][dateObj.getDay()]})`;
+        });
+
+        const selectedDateEvents = computed(() => events.value.filter(e => e.date === selectedDateStr.value));
+
+        const prevPeriod = () => {
+          const d = new Date(currentDate.value);
+          if (viewMode.value === "day") d.setDate(d.getDate() - 1);
+          else if (viewMode.value === "week") d.setDate(d.getDate() - 7);
+          else if (viewMode.value === "month") d.setMonth(d.getMonth() - 1);
+          currentDate.value = d;
+          refreshIcons();
+        };
+
+        const nextPeriod = () => {
+          const d = new Date(currentDate.value);
+          if (viewMode.value === "day") d.setDate(d.getDate() + 1);
+          else if (viewMode.value === "week") d.setDate(d.getDate() + 7);
+          else if (viewMode.value === "month") d.setMonth(d.getMonth() + 1);
+          currentDate.value = d;
+          refreshIcons();
+        };
+
+        const goToday = () => {
+          currentDate.value = new Date();
+          selectedDateStr.value = new Date().toISOString().split("T")[0];
+          refreshIcons();
+        };
+
+        const monthCells = computed(() => {
+          const d = currentDate.value;
+          const year = d.getFullYear();
+          const month = d.getMonth();
+          const firstDay = new Date(year, month, 1);
+          const lastDay = new Date(year, month + 1, 0);
+          const startDayOfWeek = firstDay.getDay();
+
+          const cells = [];
+          const todayIso = new Date().toISOString().split("T")[0];
+
+          for (let i = startDayOfWeek - 1; i >= 0; i--) {
+            const date = new Date(year, month, -i);
+            const dateStr = date.toISOString().split("T")[0];
+            cells.push({
+              dateStr,
+              dayNumber: date.getDate(),
+              isCurrentMonth: false,
+              isToday: dateStr === todayIso,
+              events: events.value.filter(e => e.date === dateStr)
+            });
+          }
+
+          for (let day = 1; day <= lastDay.getDate(); day++) {
+            const date = new Date(year, month, day);
+            const dateStr = date.toISOString().split("T")[0];
+            cells.push({
+              dateStr,
+              dayNumber: day,
+              isCurrentMonth: true,
+              isToday: dateStr === todayIso,
+              events: events.value.filter(e => e.date === dateStr)
+            });
+          }
+
+          const remaining = 42 - cells.length;
+          for (let i = 1; i <= remaining; i++) {
+            const date = new Date(year, month + 1, i);
+            const dateStr = date.toISOString().split("T")[0];
+            cells.push({
+              dateStr,
+              dayNumber: date.getDate(),
+              isCurrentMonth: false,
+              isToday: dateStr === todayIso,
+              events: events.value.filter(e => e.date === dateStr)
+            });
+          }
+
+          return cells;
+        });
+
+        const weekDays = computed(() => {
+          const d = new Date(currentDate.value);
+          const dayOfWeek = d.getDay();
+          const sunday = new Date(d.setDate(d.getDate() - dayOfWeek));
+          const days = [];
+          const labels = ['日', '月', '火', '水', '木', '金', '土'];
+          const todayIso = new Date().toISOString().split("T")[0];
+
+          for (let i = 0; i < 7; i++) {
+            const cur = new Date(sunday);
+            cur.setDate(sunday.getDate() + i);
+            const dateStr = cur.toISOString().split("T")[0];
+            days.push({
+              dateStr,
+              dayNumber: cur.getDate(),
+              dayLabel: labels[i],
+              isToday: dateStr === todayIso,
+              events: events.value.filter(e => e.date === dateStr)
+            });
+          }
+          return days;
+        });
+
+        const dayEvents = computed(() => {
+          const dateStr = currentDate.value.toISOString().split("T")[0];
+          return events.value.filter(e => e.date === dateStr);
+        });
+
+        const tagBadgeStyle = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-50/90 text-blue-900 border-blue-200";
+            case "販促情報": return "bg-rose-50/90 text-rose-900 border-rose-200";
+            case "商品情報": return "bg-emerald-50/90 text-emerald-900 border-emerald-200";
+            default: return "bg-amber-50/90 text-amber-950 border-amber-200";
+          }
+        };
+
+        const tagDotColor = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-500";
+            case "販促情報": return "bg-rose-500";
+            case "商品情報": return "bg-emerald-500";
+            default: return "bg-amber-500";
+          }
+        };
+
+        const tagTextColor = (tag) => {
+          switch (tag) {
+            case "本部案内": return "text-blue-700";
+            case "販促情報": return "text-rose-700";
+            case "商品情報": return "text-emerald-700";
+            default: return "text-amber-700";
+          }
+        };
+
+        const tagTagStyle = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-100/70 text-blue-800 border-blue-200";
+            case "販促情報": return "bg-rose-100/70 text-rose-800 border-rose-200";
+            case "商品情報": return "bg-emerald-100/70 text-emerald-800 border-emerald-200";
+            default: return "bg-amber-100/70 text-amber-900 border-amber-200";
+          }
+        };
+
+        const tagActiveStyle = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-600 text-white shadow-xs";
+            case "販促情報": return "bg-rose-600 text-white shadow-xs";
+            case "商品情報": return "bg-emerald-600 text-white shadow-xs";
+            default: return "bg-amber-600 text-white shadow-xs";
+          }
+        };
+
+        const tagModalSelectedStyle = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-50 border-blue-500 text-blue-700 ring-1 ring-blue-500";
+            case "販促情報": return "bg-rose-50 border-rose-500 text-rose-700 ring-1 ring-rose-500";
+            case "商品情報": return "bg-emerald-50 border-emerald-500 text-emerald-700 ring-1 ring-emerald-500";
+            default: return "bg-amber-50 border-amber-500 text-amber-800 ring-1 ring-amber-500";
+          }
+        };
+
+        const selectMonthCell = (dateStr) => {
+          selectedDateStr.value = dateStr;
+          refreshIcons();
+        };
+
+        const openCreateModal = () => {
+          if (!isAdmin.value) return;
+          isEditing.value = false;
+          form.value = {
+            id: "ev-" + Date.now(),
+            title: "",
+            date: selectedDateStr.value || currentDate.value.toISOString().split("T")[0],
+            hasTime: false,
+            time: "10:00",
+            tag: selectedTag.value || "本部案内",
+            description: ""
+          };
+          showModal.value = true;
+          refreshIcons();
+        };
+
+        const quickCreateForDate = (dateStr) => {
+          if (!isAdmin.value) return;
+          isEditing.value = false;
+          selectedDateStr.value = dateStr;
+          form.value = {
+            id: "ev-" + Date.now(),
+            title: "",
+            date: dateStr,
+            hasTime: false,
+            time: "10:00",
+            tag: selectedTag.value || "本部案内",
+            description: ""
+          };
+          showModal.value = true;
+          refreshIcons();
+        };
+
+        const openEditModal = (ev) => {
+          if (!isAdmin.value) return;
+          isEditing.value = true;
+          form.value = {
+            ...ev,
+            hasTime: ev.hasTime !== undefined ? ev.hasTime : (!!ev.time),
+            tag: predefinedTags.includes(ev.tag) ? ev.tag : "その他"
+          };
+          showModal.value = true;
+          refreshIcons();
+        };
+
+        const closeModal = () => {
+          showModal.value = false;
+        };
+
+        const handleTextareaKeydown = (e) => {
+          if (e.key === "Enter" && e.shiftKey) {
+            e.preventDefault();
+            submitForm();
+          }
+        };
+
+        const submitForm = async () => {
+          if (!isAdmin.value) return;
+          if (!form.value.title.trim()) {
+            alert("タイトルを入力してください。");
+            return;
+          }
+          if (!form.value.date) {
+            alert("日付を選択してください。");
+            return;
+          }
+          if (form.value.hasTime && !form.value.time) {
+            alert("開始時間を設定してください。");
+            return;
+          }
+
+          const payload = {
+            id: form.value.id || "ev-" + Date.now(),
+            title: form.value.title.trim(),
+            date: form.value.date,
+            hasTime: !!form.value.hasTime,
+            time: form.value.hasTime ? form.value.time : "",
+            tag: form.value.tag || "その他",
+            description: form.value.description.trim()
+          };
+
+          await dbService.save(payload);
+          await loadEvents();
+          selectedDateStr.value = payload.date;
+          closeModal();
+          refreshIcons();
+        };
+
+        const confirmDelete = async (id) => {
+          if (!isAdmin.value) return;
+          if (confirm("この予定を削除してもよろしいですか？")) {
+            await dbService.delete(id);
+            await loadEvents();
+            if (showModal.value) closeModal();
+            refreshIcons();
+          }
+        };
+
+        return {
+          viewMode,
+          currentDate,
+          selectedDateStr,
+          currentPeriodLabel,
+          isCurrentPeriodToday,
+          currentDateFormatted,
+          currentDateStr,
+          selectedDateFormatted,
+          selectedDateEvents,
+          selectedTag,
+          predefinedTags,
+          countTagEvents,
+          filterEvents,
+          formatEventTime,
+          prevPeriod,
+          nextPeriod,
+          goToday,
+          monthCells,
+          weekDays,
+          dayEvents,
+          tagBadgeStyle,
+          tagDotColor,
+          tagTextColor,
+          tagTagStyle,
+          tagActiveStyle,
+          tagModalSelectedStyle,
+          selectMonthCell,
+          showModal,
+          isEditing,
+          form,
+          modalTitle,
+          submitButtonText,
+          openCreateModal,
+          quickCreateForDate,
+          openEditModal,
+          closeModal,
+          handleTextareaKeydown,
+          submitForm,
+          confirmDelete,
+          isAdmin,
+          showAuthModal,
+          showAdminMenuModal,
+          inputPassword,
+          authError,
+          handleAdminButtonClick,
+          openAuthModal,
+          closeAuthModal,
+          verifyPassword,
+          logoutAdmin,
+          openCreateModalFromMenu,
+          showViewModal,
+          viewingEvent,
+          handleEventClick
+        };
+      }
+    }).mount("#app");
+  </script>
+</body>
+</html><body class="bg-neutral-50 text-neutral-900 min-h-screen flex flex-col antialiased">
+  <div id="app" v-cloak class="flex flex-col flex-1 h-screen overflow-hidden">
     
     <!-- ========================================== -->
     <!-- 管理者ステータスバー (管理者モード中のみ薄く表示) -->
@@ -468,7 +1627,7 @@
               class="w-full text-center tracking-widest text-lg font-mono px-3 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white" 
               autofocus 
               required>
-            <p v-if="authError" class="text-rose-500 text-xs font-semibold mt-1.5 animate-shake">
+            <p v-if="authError" class="text-rose-500 text-xs font-semibold mt-1.5">
               {{ authError }}
             </p>
           </div>
@@ -561,7 +1720,7 @@
     </div>
 
     <!-- ========================================== -->
-    <!-- モーダル4: 管理者用 予定登録 / 編集ダイアログ -->
+    <!-- モーダル4: 管理者用 予定登録 / 編集ダイアログ (文字化け・バインド落ち対策済み) -->
     <!-- ========================================== -->
     <div 
       v-if="showModal && isAdmin" 
@@ -574,7 +1733,7 @@
         
         <div class="px-5 py-4 border-b border-neutral-100 flex items-center justify-between">
           <h3 class="font-bold text-neutral-900 text-sm sm:text-base">
-            {{ isEditing ? '予定を編集' : '新規予定登録' }}
+            {{ modalTitle }}
           </h3>
           <button @click="closeModal" class="min-w-[40px] min-h-[40px] flex items-center justify-center text-neutral-400 hover:text-neutral-600 rounded-lg" title="閉じる">
             <i data-lucide="x" class="w-5 h-5"></i>
@@ -605,14 +1764,14 @@
             <label class="block text-xs font-semibold text-neutral-700 mb-1.5">タグ <span class="text-rose-500">*</span></label>
             <div class="grid grid-cols-2 gap-1.5">
               <button 
-                v-for="t in predefinedTags" 
-                :key="t"
+                v-for="tagName in predefinedTags" 
+                :key="tagName"
                 type="button"
-                @click="form.tag = t"
-                :class="form.tag === t ? tagModalSelectedStyle(t) : 'bg-neutral-50 border-neutral-200 text-neutral-600 hover:bg-neutral-100'"
+                @click="form.tag = tagName"
+                :class="form.tag === tagName ? tagModalSelectedStyle(tagName) : 'bg-neutral-50 border-neutral-200 text-neutral-600 hover:bg-neutral-100'"
                 class="min-h-[42px] px-3 rounded-xl border text-xs font-semibold transition-all flex items-center justify-center gap-1.5 shadow-2xs">
-                <span class="w-2 h-2 rounded-full" :class="tagDotColor(t)"></span>
-                <span>{{ t }}</span>
+                <span class="w-2 h-2 rounded-full" :class="tagDotColor(tagName)"></span>
+                <span>{{ tagName }}</span>
               </button>
             </div>
           </div>
@@ -681,7 +1840,7 @@
               <button 
                 type="submit" 
                 class="min-h-[40px] px-5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-semibold shadow-sm transition-all">
-                {{ isEditing ? '保存する' : '追加する' }}
+                {{ submitButtonText }}
               </button>
             </div>
           </div>
@@ -696,21 +1855,42 @@
     // Supabase 接続設定 (★以下をご自身のプロジェクトの値に変更してください)
     // ==========================================
     const SUPABASE_URL = "https://umhrrbqftcpyitbbuqzq.supabase.co";
-    const SUPABASE_ANON_KEY = "https://umhrrbqftcpyitbbuqzq.supabase.co/rest/v1/";
+    const SUPABASE_ANON_KEY = "sb_publishable_pTWKFg4BQqig_wF9zPAb0w_iPBJN8gO";
 
-    // Supabaseクライアントの初期化
-    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Supabase接続クライアント（設定されていない場合はnull）
+    const isSupabaseConfigured = SUPABASE_URL && !SUPABASE_URL.includes("YOUR_PROJECT_ID") && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes("YOUR_SUPABASE_ANON_KEY");
+    let supabaseClient = null;
+    if (isSupabaseConfigured && window.supabase) {
+      try {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      } catch (e) {
+        console.warn("Supabase初期化スキップ:", e);
+      }
+    }
 
     // 管理者パスワード設定
     const ADMIN_PASSWORD = "0122";
     const PREDEFINED_TAGS = ["本部案内", "販促情報", "商品情報", "その他"];
 
+    // ローカルストレージフォールバック（Supabase未設定時用）
+    const localStore = {
+      get() {
+        const raw = localStorage.getItem("TeamCal_Events");
+        return raw ? JSON.parse(raw) : [];
+      },
+      save(list) {
+        localStorage.setItem("TeamCal_Events", JSON.stringify(list));
+      }
+    };
+
     // ==========================================
-    // Supabase データアクセスサービス (DB連携層)
+    // データアクセス層 (Supabase / ローカル自動切替)
     // ==========================================
     const dbService = {
-      // 全データの取得
       async getAll() {
+        if (!supabaseClient) {
+          return localStore.get();
+        }
         try {
           const { data, error } = await supabaseClient
             .from("schedules")
@@ -719,25 +1899,28 @@
 
           if (error) throw error;
 
-          // Supabaseのカラム形式(スネークケース)をフロント形式(キャメルケース)へ正規化
           return (data || []).map(row => ({
             id: row.id,
             title: row.title,
             date: row.date,
-            hasTime: row.has_time,
+            hasTime: !!row.has_time,
             time: row.time || "",
             tag: row.tag || "その他",
             description: row.description || ""
           }));
         } catch (err) {
-          console.error("Supabase読み込みエラー:", err.message);
-          alert("データ取得に失敗しました。SupabaseのURL・キー・テーブル設定をご確認ください。\n" + err.message);
-          return [];
+          console.warn("Supabaseからの取得に失敗したためローカルデータを参照します:", err.message);
+          return localStore.get();
         }
       },
 
-      // データの保存 (新規作成・更新)
       async save(item) {
+        if (!supabaseClient) {
+          const list = localStore.get().filter(e => e.id !== item.id);
+          list.push(item);
+          localStore.save(list);
+          return;
+        }
         try {
           const payload = {
             id: item.id,
@@ -755,14 +1938,19 @@
 
           if (error) throw error;
         } catch (err) {
-          console.error("Supabase保存エラー:", err.message);
-          alert("予定の保存に失敗しました: " + err.message);
-          throw err;
+          console.warn("Supabase保存失敗のためローカル保存を実行:", err.message);
+          const list = localStore.get().filter(e => e.id !== item.id);
+          list.push(item);
+          localStore.save(list);
         }
       },
 
-      // データの削除
       async delete(id) {
+        if (!supabaseClient) {
+          const list = localStore.get().filter(e => e.id !== id);
+          localStore.save(list);
+          return;
+        }
         try {
           const { error } = await supabaseClient
             .from("schedules")
@@ -770,6 +1958,571 @@
             .eq("id", id);
 
           if (error) throw error;
+        } catch (err) {
+          console.warn("Supabase削除失敗のためローカル削除を実行:", err.message);
+          const list = localStore.get().filter(e => e.id !== id);
+          localStore.save(list);
+        }
+      }
+    };
+
+    // PWA Dynamic Manifest
+    (function registerSingleFilePWA() {
+      const manifest = {
+        name: "チームスケジュール",
+        short_name: "TeamCal",
+        start_url: window.location.href,
+        display: "standalone",
+        background_color: "#ffffff",
+        theme_color: "#2563eb",
+        icons: [{
+          src: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232563eb'/><text x='50%' y='65%' font-size='50' text-anchor='middle' fill='white'>📅</text></svg>",
+          sizes: "192x192 512x512",
+          type: "image/svg+xml"
+        }]
+      };
+      const blob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
+      const manifestUrl = URL.createObjectURL(blob);
+      const link = document.createElement("link");
+      link.rel = "manifest";
+      link.href = manifestUrl;
+      document.head.appendChild(link);
+    })();
+
+    const { createApp, ref, computed, onMounted, nextTick } = Vue;
+
+    createApp({
+      setup() {
+        const viewMode = ref("month");
+        const currentDate = ref(new Date());
+        const selectedDateStr = ref(new Date().toISOString().split("T")[0]);
+        const events = ref([]);
+        const selectedTag = ref("");
+
+        // 管理者認証ステート
+        const isAdmin = ref(false);
+        const showAuthModal = ref(false);
+        const showAdminMenuModal = ref(false);
+        const inputPassword = ref("");
+        const authError = ref("");
+
+        // 閲覧モーダル
+        const showViewModal = ref(false);
+        const viewingEvent = ref({});
+
+        const predefinedTags = PREDEFINED_TAGS;
+
+        const showModal = ref(false);
+        const isEditing = ref(false);
+        
+        const form = ref({
+          id: "",
+          title: "",
+          date: "",
+          hasTime: false,
+          time: "10:00",
+          tag: "本部案内",
+          description: ""
+        });
+
+        // モーダルのタイトル＆送信ボタン（テンプレート内での生式出力を防ぐ）
+        const modalTitle = computed(() => {
+          return isEditing.value ? "予定を編集" : "新規予定登録";
+        });
+        const submitButtonText = computed(() => {
+          return isEditing.value ? "保存する" : "追加する";
+        });
+
+        const refreshIcons = () => {
+          nextTick(() => {
+            if (window.lucide) {
+              window.lucide.createIcons();
+            }
+          });
+        };
+
+        const loadEvents = async () => {
+          events.value = await dbService.getAll();
+          refreshIcons();
+        };
+
+        onMounted(async () => {
+          await loadEvents();
+
+          // 初期データが空の場合はサンプルデータを投入
+          if (events.value.length === 0) {
+            const todayStr = new Date().toISOString().split("T")[0];
+            const samples = [
+              { id: "sample-1", title: "月次全体方針・店長通達確認", date: todayStr, hasTime: false, time: "", tag: "本部案内", description: "売上目標および作業優先順位の共有" },
+              { id: "sample-2", title: "春キャンペーンPOP設置・販促物展開", date: todayStr, hasTime: true, time: "14:00", tag: "販促情報", description: "レジ前およびメイン什器の差し替え" }
+            ];
+            for (const s of samples) {
+              await dbService.save(s);
+            }
+            await loadEvents();
+          }
+
+          // Supabase Realtime リスナー
+          if (supabaseClient) {
+            try {
+              supabaseClient
+                .channel("public:schedules")
+                .on(
+                  "postgres_changes",
+                  { event: "*", schema: "public", table: "schedules" },
+                  () => {
+                    loadEvents();
+                  }
+                )
+                .subscribe();
+            } catch (e) {
+              console.warn("Realtime購読エラー:", e);
+            }
+          }
+
+          refreshIcons();
+        });
+
+        const handleAdminButtonClick = () => {
+          if (!isAdmin.value) {
+            openAuthModal();
+          } else {
+            showAdminMenuModal.value = true;
+            refreshIcons();
+          }
+        };
+
+        const openAuthModal = () => {
+          inputPassword.value = "";
+          authError.value = "";
+          showAuthModal.value = true;
+          refreshIcons();
+        };
+
+        const closeAuthModal = () => {
+          showAuthModal.value = false;
+          inputPassword.value = "";
+          authError.value = "";
+        };
+
+        const verifyPassword = () => {
+          if (inputPassword.value === ADMIN_PASSWORD) {
+            isAdmin.value = true;
+            closeAuthModal();
+            refreshIcons();
+          } else {
+            authError.value = "パスワードが間違っています。";
+          }
+        };
+
+        const logoutAdmin = () => {
+          isAdmin.value = false;
+          showAdminMenuModal.value = false;
+          showModal.value = false;
+          refreshIcons();
+        };
+
+        const openCreateModalFromMenu = () => {
+          showAdminMenuModal.value = false;
+          openCreateModal();
+        };
+
+        const handleEventClick = (ev) => {
+          if (isAdmin.value) {
+            openEditModal(ev);
+          } else {
+            viewingEvent.value = ev;
+            showViewModal.value = true;
+            refreshIcons();
+          }
+        };
+
+        const countTagEvents = (tag) => {
+          return events.value.filter(e => e.tag === tag).length;
+        };
+
+        const filterEvents = (list) => {
+          if (!list) return [];
+          if (!selectedTag.value) return list;
+          return list.filter(e => e.tag === selectedTag.value);
+        };
+
+        const formatEventTime = (ev) => {
+          if (ev.hasTime === false || !ev.time) return "終日";
+          return ev.time;
+        };
+
+        const currentPeriodLabel = computed(() => {
+          const d = currentDate.value;
+          const y = d.getFullYear();
+          const m = d.getMonth() + 1;
+          if (viewMode.value === "day") {
+            return `${y}年${m}月${d.getDate()}日`;
+          } else if (viewMode.value === "week") {
+            return `${y}年${m}月 (週)`;
+          } else {
+            return `${y}年${m}月`;
+          }
+        });
+
+        const isCurrentPeriodToday = computed(() => {
+          const now = new Date();
+          const cur = currentDate.value;
+          return now.getFullYear() === cur.getFullYear() && now.getMonth() === cur.getMonth();
+        });
+
+        const currentDateFormatted = computed(() => {
+          const d = currentDate.value;
+          return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${['日','月','火','水','木','金','土'][d.getDay()]})`;
+        });
+
+        const currentDateStr = computed(() => {
+          return currentDate.value.toISOString().split("T")[0];
+        });
+
+        const selectedDateFormatted = computed(() => {
+          if (!selectedDateStr.value) return "";
+          const [y, m, d] = selectedDateStr.value.split("-").map(Number);
+          const dateObj = new Date(y, m - 1, d);
+          return `${m}月${d}日 (${['日','月','火','水','木','金','土'][dateObj.getDay()]})`;
+        });
+
+        const selectedDateEvents = computed(() => {
+          return events.value.filter(e => e.date === selectedDateStr.value);
+        });
+
+        const prevPeriod = () => {
+          const d = new Date(currentDate.value);
+          if (viewMode.value === "day") d.setDate(d.getDate() - 1);
+          else if (viewMode.value === "week") d.setDate(d.getDate() - 7);
+          else if (viewMode.value === "month") d.setMonth(d.getMonth() - 1);
+          currentDate.value = d;
+          refreshIcons();
+        };
+
+        const nextPeriod = () => {
+          const d = new Date(currentDate.value);
+          if (viewMode.value === "day") d.setDate(d.getDate() + 1);
+          else if (viewMode.value === "week") d.setDate(d.getDate() + 7);
+          else if (viewMode.value === "month") d.setMonth(d.getMonth() + 1);
+          currentDate.value = d;
+          refreshIcons();
+        };
+
+        const goToday = () => {
+          currentDate.value = new Date();
+          selectedDateStr.value = new Date().toISOString().split("T")[0];
+          refreshIcons();
+        };
+
+        const monthCells = computed(() => {
+          const d = currentDate.value;
+          const year = d.getFullYear();
+          const month = d.getMonth();
+          const firstDay = new Date(year, month, 1);
+          const lastDay = new Date(year, month + 1, 0);
+          const startDayOfWeek = firstDay.getDay();
+
+          const cells = [];
+          const todayIso = new Date().toISOString().split("T")[0];
+
+          for (let i = startDayOfWeek - 1; i >= 0; i--) {
+            const date = new Date(year, month, -i);
+            const dateStr = date.toISOString().split("T")[0];
+            cells.push({
+              dateStr,
+              dayNumber: date.getDate(),
+              isCurrentMonth: false,
+              isToday: dateStr === todayIso,
+              events: events.value.filter(e => e.date === dateStr)
+            });
+          }
+
+          for (let day = 1; day <= lastDay.getDate(); day++) {
+            const date = new Date(year, month, day);
+            const dateStr = date.toISOString().split("T")[0];
+            cells.push({
+              dateStr,
+              dayNumber: day,
+              isCurrentMonth: true,
+              isToday: dateStr === todayIso,
+              events: events.value.filter(e => e.date === dateStr)
+            });
+          }
+
+          const remaining = 42 - cells.length;
+          for (let i = 1; i <= remaining; i++) {
+            const date = new Date(year, month + 1, i);
+            const dateStr = date.toISOString().split("T")[0];
+            cells.push({
+              dateStr,
+              dayNumber: date.getDate(),
+              isCurrentMonth: false,
+              isToday: dateStr === todayIso,
+              events: events.value.filter(e => e.date === dateStr)
+            });
+          }
+
+          return cells;
+        });
+
+        const weekDays = computed(() => {
+          const d = new Date(currentDate.value);
+          const dayOfWeek = d.getDay();
+          const sunday = new Date(d.setDate(d.getDate() - dayOfWeek));
+          const days = [];
+          const labels = ['日', '月', '火', '水', '木', '金', '土'];
+          const todayIso = new Date().toISOString().split("T")[0];
+
+          for (let i = 0; i < 7; i++) {
+            const cur = new Date(sunday);
+            cur.setDate(sunday.getDate() + i);
+            const dateStr = cur.toISOString().split("T")[0];
+            days.push({
+              dateStr,
+              dayNumber: cur.getDate(),
+              dayLabel: labels[i],
+              isToday: dateStr === todayIso,
+              events: events.value.filter(e => e.date === dateStr)
+            });
+          }
+          return days;
+        });
+
+        const dayEvents = computed(() => {
+          const dateStr = currentDate.value.toISOString().split("T")[0];
+          return events.value.filter(e => e.date === dateStr);
+        });
+
+        const tagBadgeStyle = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-50/90 text-blue-900 border-blue-200";
+            case "販促情報": return "bg-rose-50/90 text-rose-900 border-rose-200";
+            case "商品情報": return "bg-emerald-50/90 text-emerald-900 border-emerald-200";
+            case "その他":
+            default: return "bg-amber-50/90 text-amber-950 border-amber-200";
+          }
+        };
+
+        const tagDotColor = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-500";
+            case "販促情報": return "bg-rose-500";
+            case "商品情報": return "bg-emerald-500";
+            case "その他":
+            default: return "bg-amber-500";
+          }
+        };
+
+        const tagTextColor = (tag) => {
+          switch (tag) {
+            case "本部案内": return "text-blue-700";
+            case "販促情報": return "text-rose-700";
+            case "商品情報": return "text-emerald-700";
+            case "その他":
+            default: return "text-amber-700";
+          }
+        };
+
+        const tagTagStyle = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-100/70 text-blue-800 border-blue-200";
+            case "販促情報": return "bg-rose-100/70 text-rose-800 border-rose-200";
+            case "商品情報": return "bg-emerald-100/70 text-emerald-800 border-emerald-200";
+            case "その他":
+            default: return "bg-amber-100/70 text-amber-900 border-amber-200";
+          }
+        };
+
+        const tagActiveStyle = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-600 text-white shadow-xs";
+            case "販促情報": return "bg-rose-600 text-white shadow-xs";
+            case "商品情報": return "bg-emerald-600 text-white shadow-xs";
+            case "その他":
+            default: return "bg-amber-600 text-white shadow-xs";
+          }
+        };
+
+        const tagModalSelectedStyle = (tag) => {
+          switch (tag) {
+            case "本部案内": return "bg-blue-50 border-blue-500 text-blue-700 ring-1 ring-blue-500";
+            case "販促情報": return "bg-rose-50 border-rose-500 text-rose-700 ring-1 ring-rose-500";
+            case "商品情報": return "bg-emerald-50 border-emerald-500 text-emerald-700 ring-1 ring-emerald-500";
+            case "その他":
+            default: return "bg-amber-50 border-amber-500 text-amber-800 ring-1 ring-amber-500";
+          }
+        };
+
+        const selectMonthCell = (dateStr) => {
+          selectedDateStr.value = dateStr;
+          refreshIcons();
+        };
+
+        const openCreateModal = () => {
+          if (!isAdmin.value) return;
+          isEditing.value = false;
+          form.value = {
+            id: "ev-" + Date.now(),
+            title: "",
+            date: selectedDateStr.value || currentDate.value.toISOString().split("T")[0],
+            hasTime: false,
+            time: "10:00",
+            tag: selectedTag.value || "本部案内",
+            description: ""
+          };
+          showModal.value = true;
+          refreshIcons();
+        };
+
+        const quickCreateForDate = (dateStr) => {
+          if (!isAdmin.value) return;
+          isEditing.value = false;
+          selectedDateStr.value = dateStr;
+          form.value = {
+            id: "ev-" + Date.now(),
+            title: "",
+            date: dateStr,
+            hasTime: false,
+            time: "10:00",
+            tag: selectedTag.value || "本部案内",
+            description: ""
+          };
+          showModal.value = true;
+          refreshIcons();
+        };
+
+        const openEditModal = (ev) => {
+          if (!isAdmin.value) return;
+          isEditing.value = true;
+          form.value = {
+            ...ev,
+            hasTime: ev.hasTime !== undefined ? ev.hasTime : (!!ev.time),
+            tag: predefinedTags.includes(ev.tag) ? ev.tag : "その他"
+          };
+          showModal.value = true;
+          refreshIcons();
+        };
+
+        const closeModal = () => {
+          showModal.value = false;
+        };
+
+        const handleBackdropClick = () => {
+          closeModal();
+        };
+
+        const handleTextareaKeydown = (e) => {
+          if (e.key === "Enter" && e.shiftKey) {
+            e.preventDefault();
+            submitForm();
+          }
+        };
+
+        const submitForm = async () => {
+          if (!isAdmin.value) return;
+          if (!form.value.title.trim()) {
+            alert("タイトルを入力してください。");
+            return;
+          }
+          if (!form.value.date) {
+            alert("日付を選択してください。");
+            return;
+          }
+          if (form.value.hasTime && !form.value.time) {
+            alert("開始時間を設定してください。");
+            return;
+          }
+
+          const payload = {
+            id: form.value.id || "ev-" + Date.now(),
+            title: form.value.title.trim(),
+            date: form.value.date,
+            hasTime: !!form.value.hasTime,
+            time: form.value.hasTime ? form.value.time : "",
+            tag: form.value.tag || "その他",
+            description: form.value.description.trim()
+          };
+
+          await dbService.save(payload);
+          await loadEvents();
+          selectedDateStr.value = payload.date;
+          closeModal();
+          refreshIcons();
+        };
+
+        const confirmDelete = async (id) => {
+          if (!isAdmin.value) return;
+          if (confirm("この予定を削除してもよろしいですか？")) {
+            await dbService.delete(id);
+            await loadEvents();
+            if (showModal.value) closeModal();
+            refreshIcons();
+          }
+        };
+
+        return {
+          viewMode,
+          currentDate,
+          selectedDateStr,
+          currentPeriodLabel,
+          isCurrentPeriodToday,
+          currentDateFormatted,
+          currentDateStr,
+          selectedDateFormatted,
+          selectedDateEvents,
+          selectedTag,
+          predefinedTags,
+          countTagEvents,
+          filterEvents,
+          formatEventTime,
+          prevPeriod,
+          nextPeriod,
+          goToday,
+          monthCells,
+          weekDays,
+          dayEvents,
+          tagBadgeStyle,
+          tagDotColor,
+          tagTextColor,
+          tagTagStyle,
+          tagActiveStyle,
+          tagModalSelectedStyle,
+          selectMonthCell,
+          showModal,
+          isEditing,
+          modalTitle,
+          submitButtonText,
+          form,
+          openCreateModal,
+          quickCreateForDate,
+          openEditModal,
+          closeModal,
+          handleBackdropClick,
+          handleTextareaKeydown,
+          submitForm,
+          confirmDelete,
+          // 管理者関連
+          isAdmin,
+          showAuthModal,
+          showAdminMenuModal,
+          inputPassword,
+          authError,
+          handleAdminButtonClick,
+          openAuthModal,
+          closeAuthModal,
+          verifyPassword,
+          logoutAdmin,
+          openCreateModalFromMenu,
+          showViewModal,
+          viewingEvent,
+          handleEventClick
+        };
+      }
+    }).mount("#app");
+  </script>
+</body>
+</html>          if (error) throw error;
         } catch (err) {
           console.error("Supabase削除エラー:", err.message);
           alert("予定の削除に失敗しました: " + err.message);
