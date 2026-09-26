@@ -131,7 +131,7 @@
     <div class="bg-white border-b border-neutral-200/80 px-3.5 sm:px-6 py-2 flex items-center gap-1.5 overflow-x-auto shrink-0 no-scrollbar">
       <button 
         @click="selectedTag = ''" 
-        :class="selectedTag === '' ? 'bg-neutral-800 text-white shadow-xs' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200/70'"
+        :class="selectedTag === '' ? 'bg-neutral-800 text-white shadow-xs' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200/70'" 
         class="h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 flex items-center whitespace-nowrap">
         すべて
       </button>
@@ -139,7 +139,7 @@
         v-for="t in predefinedTags" 
         :key="t" 
         @click="selectedTag = t" 
-        :class="selectedTag === t ? tagActiveStyle(t) : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200/70'"
+        :class="selectedTag === t ? tagActiveStyle(t) : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200/70'" 
         class="h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 flex items-center gap-1 whitespace-nowrap">
         <span class="w-1.5 h-1.5 rounded-full" :class="tagDotColor(t)"></span>
         <span>{{ t }}</span>
@@ -166,13 +166,13 @@
             <div 
               v-for="(cell, idx) in monthCells" 
               :key="idx" 
-              @click="selectMonthCell(cell.dateStr)"
+              @click="selectMonthCell(cell.dateStr)" 
               :class="[
                 'border-b border-r border-neutral-100 p-1 flex flex-col cursor-pointer transition-all select-none relative',
                 cell.isCurrentMonth ? 'bg-white' : 'bg-neutral-50/50 opacity-35',
                 selectedDateStr === cell.dateStr ? 'bg-blue-50/60 ring-2 ring-inset ring-blue-500 z-10' : 'hover:bg-neutral-50/80',
                 cell.isToday && selectedDateStr !== cell.dateStr ? 'ring-1 ring-inset ring-neutral-300' : ''
-              ]"
+              ]" 
               style="min-height: 48px;">
               
               <div class="flex items-center justify-between">
@@ -203,7 +203,7 @@
                 <div 
                   v-for="ev in filterEvents(cell.events).slice(0, 2)" 
                   :key="ev.id" 
-                  @click.stop="handleEventClick(ev)"
+                  @click.stop="handleEventClick(ev)" 
                   :class="tagBadgeStyle(ev.tag)" 
                   class="px-1.5 py-0.5 rounded text-[10px] font-medium truncate border shadow-2xs hover:brightness-95">
                   <span class="font-bold opacity-75 mr-0.5">{{ formatEventTime(ev) }}</span>
@@ -244,7 +244,7 @@
             <div 
               v-for="ev in filterEvents(selectedDateEvents)" 
               :key="ev.id" 
-              @click="handleEventClick(ev)"
+              @click="handleEventClick(ev)" 
               :class="tagBadgeStyle(ev.tag)" 
               class="p-2.5 rounded-xl border flex items-start justify-between cursor-pointer shadow-2xs hover:shadow-xs transition-all">
               <div class="space-y-1 flex-1 min-w-0 pr-2">
@@ -312,7 +312,7 @@
               <div 
                 v-for="ev in filterEvents(d.events)" 
                 :key="ev.id" 
-                @click="handleEventClick(ev)"
+                @click="handleEventClick(ev)" 
                 :class="tagBadgeStyle(ev.tag)" 
                 class="p-2 rounded-xl text-xs font-medium border shadow-2xs transition-all hover:shadow-xs cursor-pointer">
                 <div class="flex items-center justify-between gap-1 mb-1">
@@ -356,7 +356,7 @@
           <div 
             v-for="ev in filterEvents(dayEvents)" 
             :key="ev.id" 
-            @click="handleEventClick(ev)"
+            @click="handleEventClick(ev)" 
             :class="tagBadgeStyle(ev.tag)" 
             class="p-3.5 rounded-xl border flex items-start justify-between cursor-pointer shadow-2xs hover:shadow-xs transition-all">
             <div class="space-y-1.5 flex-1 pr-3">
@@ -627,6 +627,14 @@
     const ADMIN_PASSWORD = "0122";
     const PREDEFINED_TAGS = ["本部案内", "販促情報", "商品情報", "その他"];
 
+    // ローカルタイム基準で YYYY-MM-DD 形式を取得するヘルパー関数
+    const formatLocalDate = (d) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
     // ローカルストレージフォールバック
     const localStore = {
       get() {
@@ -718,7 +726,7 @@
       }
     };
 
-    // PWA Manifest（改行なしの安全なSVGアイコンURL）
+    // PWA Manifest
     (function registerSingleFilePWA() {
       const manifest = {
         name: "チームスケジュール",
@@ -746,7 +754,7 @@
       setup() {
         const viewMode = ref("month");
         const currentDate = ref(new Date());
-        const selectedDateStr = ref(new Date().toISOString().split("T")[0]);
+        const selectedDateStr = ref(formatLocalDate(new Date()));
         const events = ref([]);
         const selectedTag = ref("");
 
@@ -888,7 +896,7 @@
           return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${['日','月','火','水','木','金','土'][d.getDay()]})`;
         });
 
-        const currentDateStr = computed(() => currentDate.value.toISOString().split("T")[0]);
+        const currentDateStr = computed(() => formatLocalDate(currentDate.value));
 
         const selectedDateFormatted = computed(() => {
           if (!selectedDateStr.value) return "";
@@ -919,7 +927,7 @@
 
         const goToday = () => {
           currentDate.value = new Date();
-          selectedDateStr.value = new Date().toISOString().split("T")[0];
+          selectedDateStr.value = formatLocalDate(new Date());
           refreshIcons();
         };
 
@@ -932,11 +940,11 @@
           const startDayOfWeek = firstDay.getDay();
 
           const cells = [];
-          const todayIso = new Date().toISOString().split("T")[0];
+          const todayIso = formatLocalDate(new Date());
 
           for (let i = startDayOfWeek - 1; i >= 0; i--) {
             const date = new Date(year, month, -i);
-            const dateStr = date.toISOString().split("T")[0];
+            const dateStr = formatLocalDate(date);
             cells.push({
               dateStr,
               dayNumber: date.getDate(),
@@ -948,7 +956,7 @@
 
           for (let day = 1; day <= lastDay.getDate(); day++) {
             const date = new Date(year, month, day);
-            const dateStr = date.toISOString().split("T")[0];
+            const dateStr = formatLocalDate(date);
             cells.push({
               dateStr,
               dayNumber: day,
@@ -961,7 +969,7 @@
           const remaining = 42 - cells.length;
           for (let i = 1; i <= remaining; i++) {
             const date = new Date(year, month + 1, i);
-            const dateStr = date.toISOString().split("T")[0];
+            const dateStr = formatLocalDate(date);
             cells.push({
               dateStr,
               dayNumber: date.getDate(),
@@ -980,12 +988,12 @@
           const sunday = new Date(d.setDate(d.getDate() - dayOfWeek));
           const days = [];
           const labels = ['日', '月', '火', '水', '木', '金', '土'];
-          const todayIso = new Date().toISOString().split("T")[0];
+          const todayIso = formatLocalDate(new Date());
 
           for (let i = 0; i < 7; i++) {
             const cur = new Date(sunday);
             cur.setDate(sunday.getDate() + i);
-            const dateStr = cur.toISOString().split("T")[0];
+            const dateStr = formatLocalDate(cur);
             days.push({
               dateStr,
               dayNumber: cur.getDate(),
@@ -998,7 +1006,7 @@
         });
 
         const dayEvents = computed(() => {
-          const dateStr = currentDate.value.toISOString().split("T")[0];
+          const dateStr = formatLocalDate(currentDate.value);
           return events.value.filter(e => e.date === dateStr);
         });
 
@@ -1067,7 +1075,7 @@
           form.value = {
             id: "ev-" + Date.now(),
             title: "",
-            date: selectedDateStr.value || currentDate.value.toISOString().split("T")[0],
+            date: selectedDateStr.value || formatLocalDate(currentDate.value),
             hasTime: false,
             time: "10:00",
             tag: selectedTag.value || "本部案内",
@@ -1217,3 +1225,5 @@
       }
     }).mount("#app");
   </script>
+</body>
+</html>
